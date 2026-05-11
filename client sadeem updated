@@ -1,0 +1,194 @@
+# Import socket for TCP communication
+import socket
+import time
+# Import urlparse to validate and extract URL information
+from urllib.parse import urlparse
+
+
+# Proxy server IP address
+PROXY_HOST = "127.0.0.1"
+# Proxy server port number
+PROXY_PORT = 8080
+
+# Size of each received data chunk
+BUFFER_SIZE = 4096
+# Maximum waiting time before timeout
+TIMEOUT = 15
+
+
+def is_valid_url(url):
+
+    # URL must start with http://
+    if not url.startswith("http://"):
+        return False
+
+    # Remove http:// from the URL
+    website = url.replace("http://", "")
+
+    # Check that something exists after http://
+    if website == "":
+        return False
+
+    return True
+
+
+def receive_response(client_socket):
+    """
+    Receive the full HTTP response from the proxy server.
+    Data is received in chunks until the connection closes.
+    """
+
+    response = b""
+
+    while True:
+
+        # Receive part of the response
+        data = client_socket.recv(BUFFER_SIZE)
+
+        # Stop if no more data is received
+        if not data:
+            break
+
+        # Append received data to the response
+        response += data
+
+    return response
+
+
+def get_cache_result(response_text):
+
+    if "X-Cache: MISS" in response_text:
+        return "Fetched from external web server (Cache Miss)"
+
+    elif "X-Cache: HIT" in response_text:
+        return "Served from cache (Cache Hit)"
+
+    elif "X-Cache: BLOCKED" in response_text:
+        return "Blocked by firewall"
+
+    elif "504 Gateway Timeout" in response_text:
+        return "Timeout handled by exception handling"
+
+    elif "404 Not Found" in response_text:
+        return "Network/DNS error handled by exception handling"
+
+    elif "400 Bad Request" in response_text:
+        return "Invalid request handled by exception handling"
+
+    else:
+        return "Response received"
+
+def display_response(response_text, response_time):
+
+    print("\n========== HTTP RESPONSE ==========")
+
+    # Print the HTTP response with headers and body
+    print(response_text[:2000])
+
+    print("\n========== PERFORMANCE ==========")
+
+    # Display total response time
+    print(f"Response time: {response_time:.4f} seconds")
+
+    # Display cache/firewall/result status
+    print(f"Result: {get_cache_result(response_text)}")
+
+
+def send_get_request(url):
+    """
+    Send an HTTP GET request to the proxy server
+    and display the received response.
+    """
+
+    # Validate the entered URL before sending
+    if not is_valid_url(url):
+
+        print("Error: Please enter a full HTTP URL, such as http://example.com")
+
+        return
+
+    # Parse the URL to extract the hostname
+    parsed_url = urlparse(url)
+
+    host = parsed_url.hostname
+
+    # Build the HTTP GET request
+    request = (
+        f"GET {url} HTTP/1.1\r\n"
+        f"Host: {host}\r\n"
+        f"Connection: close\r\n"
+        f"\r\n"
+    )
+
+    try:
+
+        # Create a TCP client socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+
+            # Set timeout to prevent hanging forever
+            client_socket.settimeout(TIMEOUT)
+
+            # Connect to the proxy server
+            client_socket.connect((PROXY_HOST, PROXY_PORT))
+
+            # Start measuring response time
+            start_time = time.time()
+
+            # Send the HTTP request to the proxy
+            client_socket.sendall(request.encode())
+
+            # Receive the full response
+            response = receive_response(client_socket)
+
+            # Stop measuring response time
+            end_time = time.time()
+
+            # Calculate total response time
+            response_time = end_time - start_time
+
+            # Convert bytes into readable text
+            response_text = response.decode(errors="ignore")
+
+            # Display the response information
+            display_response(response_text, response_time)
+
+    except ConnectionRefusedError:
+
+        # Happens when the proxy server is not running
+        print("Error: Proxy server is not running.")
+
+
+    except socket.timeout:
+
+        # Happens when the server takes too long to respond
+        print("Error: Connection timed out.")
+
+
+
+    except Exception as e:
+
+        # Handle any unexpected client-side error
+        print(f"Unexpected error: {e}")
+
+
+# Main program loop
+if __name__ == "__main__":
+
+    while True:
+
+        print("\nHTTP Proxy Client")
+        print("Example: http://example.com")
+        print("Type 'exit' to stop.")
+
+        # Read URL from the user
+        url = input("Enter URL: ").strip()
+
+        # Stop the client if the user types exit
+        if url.lower() == "exit":
+
+            print("Client stopped.")
+
+            break
+
+        # Send the request to the proxy server
+        send_get_request(url)
